@@ -263,6 +263,10 @@ private struct ProviderCard: View {
                 // The shared CLI has already attempted Kimi's standard OAuth
                 // refresh before this status reaches the app.
                 messageContent(text: "请重新登录 Kimi Code 后重试", action: "重试")
+            } else if snapshot.provider == .cursor {
+                messageContent(text: "请在 Cursor 中重新登录后重试", action: "重试")
+            } else if snapshot.provider == .antigravity {
+                messageContent(text: "请安装 agy 并登录后重试", action: "重试")
             } else if snapshot.provider == .opencodeGo {
                 // The key comes from OpenCode's own auth.json; only OpenCode
                 // can re-issue it, so point there rather than at the card.
@@ -276,8 +280,6 @@ private struct ProviderCard: View {
         case .noData:
             if isRefreshing {
                 messageText("正在读取订阅配额…")
-            } else if snapshot.provider == .cursor {
-                messageText(cursorPendingText)
             } else {
                 messageText(RateLimitCardView.emptyStateText(for: snapshot, isDetected: isProductDetected))
             }
@@ -288,12 +290,6 @@ private struct ProviderCard: View {
     /// separates "installed but nothing to show yet" from "not on this Mac".
     private var isProductDetected: Bool {
         appState.quotaProducts.first(where: { $0.provider == snapshot.provider })?.isDetected == true
-    }
-
-    private var cursorPendingText: String {
-        isProductDetected
-            ? "已识别 Cursor · 等待官方配额接口"
-            : "未检测到 Cursor · 等待官方配额接口"
     }
 
     /// Quiet single-line status text for the non-meter card states.
@@ -422,7 +418,7 @@ private struct ProviderCard: View {
     private func rowView(_ row: RowItem) -> some View {
         switch row {
         case let .live(label, window):
-            QuotaRow(label: label, window: window) { hovering in
+            QuotaRow(label: label, window: window, wideLabel: usesWideQuotaLabels) { hovering in
                 hoveredLabel = hovering ? label : (hoveredLabel == label ? nil : hoveredLabel)
             }
         case let .placeholder(label, message):
@@ -431,7 +427,8 @@ private struct ProviderCard: View {
     }
 
     // Fixed row metrics so the tooltip can be positioned deterministically.
-    private var rowHeight: CGFloat { 16 }
+    private var usesWideQuotaLabels: Bool { snapshot.provider == .cursor || snapshot.provider == .antigravity }
+    private var rowHeight: CGFloat { usesWideQuotaLabels ? 28 : 16 }
     private var rowSpacing: CGFloat { 6 }
 
     private func tooltipTitle(for label: String) -> String {
@@ -535,6 +532,7 @@ private struct ProviderCard: View {
 private struct QuotaRow: View {
     let label: String
     let window: RateLimitWindow
+    let wideLabel: Bool
     let onHover: (Bool) -> Void
 
     /// Codex reports a true rolling window → we can show the secondary
@@ -546,11 +544,11 @@ private struct QuotaRow: View {
     var body: some View {
         HStack(alignment: .center, spacing: 6) {
             Text(label)
-                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                .font(.system(size: wideLabel ? 11 : 12, weight: .medium, design: .monospaced))
                 .foregroundStyle(Color(white: 0.6))
-                .lineLimit(1)
+                .lineLimit(wideLabel ? 2 : 1)
                 .minimumScaleFactor(0.8)
-                .frame(width: 42, alignment: .leading)
+                .frame(width: wideLabel ? 96 : 42, alignment: .leading)
                 .help(label)
 
             if hasElapsed {
@@ -914,6 +912,7 @@ struct ProviderIcon: View {
         case .zCode:      resource = "zcode-icon"
         case .grok:       resource = "grok-icon"
         case .cursor:     resource = "cursor-icon"
+        case .antigravity: return nil
         // No artwork shipped yet: the symbol fallback below renders until an
         // `opencode-icon` asset joins the bundle.
         case .opencodeGo:   resource = "opencode-icon"
@@ -968,6 +967,7 @@ private extension ProviderRateLimit.Provider {
         case .zCode: return "z.square"
         case .grok: return "bolt.horizontal.circle"
         case .cursor: return "cursorarrow.rays"
+        case .antigravity: return "sparkles"
         case .opencodeGo: return "chevron.left.forwardslash.chevron.right"
         }
     }

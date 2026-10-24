@@ -140,6 +140,7 @@ struct ProviderRateLimit: Equatable, Identifiable {
         case zCode = "zcode"
         case grok = "grok"
         case cursor = "cursor"
+        case antigravity = "antigravity"
         // The OpenCode *Go* subscription, not the OpenCode CLI as a whole: the
         // quota endpoint only answers for Go accounts, so the card is named
         // after the plan users bought.
@@ -153,6 +154,7 @@ struct ProviderRateLimit: Equatable, Identifiable {
             case .zCode: return "ZCode"
             case .grok: return "Grok"
             case .cursor: return "Cursor"
+            case .antigravity: return "Antigravity / AGY"
             case .opencodeGo: return "OpenCode Go"
             }
         }

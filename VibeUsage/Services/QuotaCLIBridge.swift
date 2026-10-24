@@ -18,6 +18,7 @@ enum QuotaCLIBridge {
         var dataAsOf: Date?
         var source: String
         var message: String?
+        var emptyReason: String?
     }
 
     struct Meter: Decodable, Equatable {
@@ -138,7 +139,8 @@ enum QuotaCLIBridge {
                 planLabel: product.planLabel,
                 status: status,
                 fetchedAt: product.fetchedAt,
-                dataAsOf: product.dataAsOf
+                dataAsOf: product.dataAsOf,
+                emptyReason: product.emptyReason == "noWindow" ? .noWindow : nil
             )
         }
     }
@@ -146,12 +148,10 @@ enum QuotaCLIBridge {
 
 extension ProviderRateLimit.Provider {
     /// Providers implemented by the shared, schema-versioned CLI boundary.
-    /// Cursor deliberately stays outside until it has an official stable
-    /// quota protocol; selecting it must never start a subprocess or request.
     var usesQuotaCLI: Bool {
         switch self {
-        case .kimiCode, .zCode, .grok: return true
-        case .codex, .claudeCode, .cursor, .opencodeGo: return false
+        case .kimiCode, .zCode, .grok, .cursor, .antigravity: return true
+        case .codex, .claudeCode, .opencodeGo: return false
         }
     }
 }

@@ -3,6 +3,19 @@ import Testing
 @testable import VibeUsage
 
 struct QuotaCLIBridgeTests {
+    @Test
+    func cursorAndAntigravityPreserveAllQuotaWindowsAndResets() throws {
+        for id in ["cursor", "antigravity"] {
+            let envelope = try QuotaCLIBridge.decode(payload.replacingOccurrences(of: "kimi-code", with: id))
+            let snapshot = try #require(QuotaCLIBridge.snapshots(from: envelope).first)
+            #expect(snapshot.provider.rawValue == id)
+            #expect(snapshot.status == .ok)
+            #expect(snapshot.meters.first?.window.utilization == 42.5)
+            #expect(snapshot.meters.first?.window.resetsAt != nil)
+            #expect(snapshot.provider.usesQuotaCLI)
+        }
+    }
+
     private let payload = """
     {
       "schemaVersion": 1,

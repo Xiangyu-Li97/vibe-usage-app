@@ -464,7 +464,8 @@ final class RateLimitCoordinator {
                     if snapshot.status == .ok {
                         _ = upsertIfNewer(snapshot)
                     } else if snapshot.status != .retryableError
-                                || currentSnapshot(provider)?.status != .ok {
+                                || currentSnapshot(provider)?.status != .ok
+                                || provider == .cursor || provider == .antigravity {
                         upsert(snapshot)
                     }
                     #if DEBUG || VIBE_USAGE_EXTERNAL_TEST
@@ -474,7 +475,7 @@ final class RateLimitCoordinator {
                     #if DEBUG || VIBE_USAGE_EXTERNAL_TEST
                     TestDiagnosticLog.recordMissingQuotaResult(provider)
                     #endif
-                    if currentSnapshot(provider)?.status != .ok {
+                    if currentSnapshot(provider)?.status != .ok || provider == .cursor || provider == .antigravity {
                         upsert(ProviderRateLimit(
                             provider: provider,
                             status: .retryableError,
@@ -501,7 +502,7 @@ final class RateLimitCoordinator {
             )
             for provider in providers where appState.isQuotaProviderSelected(provider)
                 && (provider != .zCode || zCodeContextIsCurrent) {
-                if currentSnapshot(provider)?.status != .ok {
+                if currentSnapshot(provider)?.status != .ok || provider == .cursor || provider == .antigravity {
                     upsert(ProviderRateLimit(
                         provider: provider,
                         status: .retryableError,
@@ -621,11 +622,10 @@ final class RateLimitCoordinator {
             cancelCodexRefresh()
         case .claudeCode:
             cancelClaudeRefresh()
-        case .kimiCode, .zCode, .grok:
+        case .kimiCode, .zCode, .grok, .cursor, .antigravity:
             cancelCLIRefresh()
         case .opencodeGo:
             cancelOpenCodeGoRefresh()
-        case .cursor: break
         }
     }
 
