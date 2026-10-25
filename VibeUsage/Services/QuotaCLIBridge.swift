@@ -27,6 +27,13 @@ enum QuotaCLIBridge {
         var utilization: Double
         var resetsAt: Date?
         var windowSeconds: Double?
+        var breakdown: [Part]?
+
+        struct Part: Decodable, Equatable {
+            var id: String
+            var label: String
+            var utilization: Double
+        }
     }
 
     enum ProtocolError: LocalizedError {
@@ -128,12 +135,18 @@ enum QuotaCLIBridge {
                 meters: product.meters.map { meter in
                     RateLimitMeter(
                         id: meter.id,
-                        label: meter.label,
+                        label: displayLabel(meterID: meter.id, label: meter.label, provider: provider),
                         window: RateLimitWindow(
                             utilization: meter.utilization,
                             resetsAt: meter.resetsAt,
                             windowDuration: meter.windowSeconds
-                        )
+                        ),
+                        breakdown: (meter.breakdown ?? []).map {
+                            RateLimitMeter.Part(
+                                label: displayLabel(meterID: $0.id, label: $0.label, provider: provider),
+                                utilization: $0.utilization
+                            )
+                        }
                     )
                 },
                 planLabel: product.planLabel,
@@ -142,6 +155,19 @@ enum QuotaCLIBridge {
                 dataAsOf: product.dataAsOf,
                 emptyReason: product.emptyReason == "noWindow" ? .noWindow : nil
             )
+        }
+    }
+
+    /// The CLI speaks English labels; the cards are Chinese. Only ids this app
+    /// knows are renamed, so a new CLI meter still renders as reported.
+    static func displayLabel(meterID: String, label: String, provider: ProviderRateLimit.Provider) -> String {
+        guard provider == .cursor else { return label }
+        switch meterID {
+        // Same row name as Claude's pay-as-you-go spend.
+        case "on-demand": return "额外"
+        case "auto": return "Cursor 模型"
+        case "api": return "第三方模型"
+        default: return label
         }
     }
 }

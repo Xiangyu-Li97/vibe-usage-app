@@ -172,21 +172,8 @@ private struct ProviderCard: View {
         VStack(alignment: .leading, spacing: 10) {
             header
             content
-            if snapshot.status == .ok {
-                TimelineView(.periodic(from: .now, by: 60)) { context in
-                    VStack(alignment: .leading, spacing: 4) {
-                        if foldedMeterCount > 0 {
-                            meterDisclosure
-                        }
-                        if let note = footerNote(at: context.date) {
-                            Text(note)
-                                .font(.system(size: 9.5))
-                                .foregroundStyle(Color(white: 0.38))
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                        }
-                    }
-                }
+            if snapshot.status == .ok, foldedMeterCount > 0 {
+                meterDisclosure
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -304,19 +291,24 @@ private struct ProviderCard: View {
     /// for a window the plan covers but has no current data for. The case
     /// matters for the tooltip overlay — only `.live` rows have a hover key.
     private enum RowItem {
-        case live(label: String, window: RateLimitWindow)
+        case live(label: String, window: RateLimitWindow, breakdown: [RateLimitMeter.Part] = [])
         case placeholder(label: String, message: String)
 
         var hoverLabel: String {
             switch self {
-            case let .live(label, _): return label
+            case let .live(label, _, _): return label
             case let .placeholder(label, _): return label
             }
         }
 
         var liveWindow: RateLimitWindow? {
-            if case let .live(_, window) = self { return window }
+            if case let .live(_, window, _) = self { return window }
             return nil
+        }
+
+        var breakdown: [RateLimitMeter.Part] {
+            if case let .live(_, _, breakdown) = self { return breakdown }
+            return []
         }
     }
 
@@ -326,7 +318,7 @@ private struct ProviderCard: View {
     private var allRows: [RowItem] {
         if !snapshot.meters.isEmpty {
             return QuotaMeterLayout.canonicalMeters(snapshot.meters).map {
-                .live(label: $0.label, window: $0.window)
+                .live(label: $0.label, window: $0.window, breakdown: $0.breakdown)
             }
         }
 
@@ -334,12 +326,13 @@ private struct ProviderCard: View {
         if let w = snapshot.fiveHour {
             out.append(.live(label: "5h", window: w))
         } else if expectsFiveHourWindow {
-            // Two different truths behind a missing 5h window: the live
-            // endpoint asserts the limit is switched off provider-side, while
-            // a JSONL snapshot can only mean "no event carried it recently".
+            // The live endpoint asserting the limit is off, or a Pro plan
+            // (OpenAI keeps 5h off for Pro since 2026-07-12), reads as 不限额;
+            // otherwise a JSONL snapshot only means no recent event carried it.
+            let unlimited = snapshot.fiveHourNotEnforced || isProPlan
             out.append(.placeholder(
                 label: "5h",
-                message: snapshot.fiveHourNotEnforced ? "官方当前未启用" : "近 5 小时无活动"
+                message: unlimited ? "不限额" : "近 5 小时无活动"
             ))
         }
         if let w = snapshot.sevenDay { out.append(.live(label: "7d", window: w)) }
@@ -369,6 +362,11 @@ private struct ProviderCard: View {
     /// emits both `primary` and `secondary` windows in every `token_count`
     /// payload. Free-tier and Claude payloads don't carry a 5h window, so
     /// reserving the slot would just confuse users on those plans.
+    private var isProPlan: Bool {
+        let plan = snapshot.planLabel?.lowercased()
+        return plan == "pro" || plan == "prolite"
+    }
+
     private var expectsFiveHourWindow: Bool {
         guard snapshot.provider == .codex,
               let plan = snapshot.planLabel?.lowercased() else { return false }
@@ -401,6 +399,7 @@ private struct ProviderCard: View {
                             tokenColor: ProgressBar.color(for: win.utilization),
                             elapsedPercentText: win.elapsedPercentText,
                             remainingText: win.remainingText,
+                            breakdown: row.breakdown,
                             anchor: anchor
                         )
                     }
@@ -417,8 +416,8 @@ private struct ProviderCard: View {
     @ViewBuilder
     private func rowView(_ row: RowItem) -> some View {
         switch row {
-        case let .live(label, window):
-            QuotaRow(label: label, window: window, wideLabel: usesWideQuotaLabels) { hovering in
+        case let .live(label, window, _):
+            QuotaRow(label: label, window: window) { hovering in
                 hoveredLabel = hovering ? label : (hoveredLabel == label ? nil : hoveredLabel)
             }
         case let .placeholder(label, message):
@@ -427,8 +426,7 @@ private struct ProviderCard: View {
     }
 
     // Fixed row metrics so the tooltip can be positioned deterministically.
-    private var usesWideQuotaLabels: Bool { snapshot.provider == .cursor || snapshot.provider == .antigravity }
-    private var rowHeight: CGFloat { usesWideQuotaLabels ? 28 : 16 }
+    private var rowHeight: CGFloat { 16 }
     private var rowSpacing: CGFloat { 6 }
 
     private func tooltipTitle(for label: String) -> String {
@@ -447,23 +445,6 @@ private struct ProviderCard: View {
 
     private var isRefreshing: Bool {
         appState.isRateLimitRefreshing(snapshot.provider)
-    }
-
-    /// Data older than this gets a 「数据截至」 note. Claude captures age
-    /// whenever Claude Code is idle and JSONL fallbacks age with Codex — both
-    /// are normal, so the threshold is generous enough not to nag about a
-    /// snapshot from a coffee break, while a live fetch (dataAsOf ≈ now)
-    /// never shows the note.
-    private static let staleNoteThreshold: TimeInterval = 5 * 60
-
-    /// One quiet tertiary line under the quota rows for stale-data context.
-    /// Folded meter rows get their own clickable line (`meterDisclosure`) so
-    /// this note never doubles as a non-interactive count.
-    /// Reset credits live beside the provider title so they never add a row.
-    private func footerNote(at now: Date) -> String? {
-        guard let asOf = snapshot.dataAsOf,
-              now.timeIntervalSince(asOf) > Self.staleNoteThreshold else { return nil }
-        return "数据截至 \(Formatters.formatRelativeTime(asOf, relativeTo: now))"
     }
 
     /// Expands/collapses the meters that did not fit in the compact card.
@@ -532,7 +513,6 @@ private struct ProviderCard: View {
 private struct QuotaRow: View {
     let label: String
     let window: RateLimitWindow
-    let wideLabel: Bool
     let onHover: (Bool) -> Void
 
     /// Codex reports a true rolling window → we can show the secondary
@@ -544,11 +524,11 @@ private struct QuotaRow: View {
     var body: some View {
         HStack(alignment: .center, spacing: 6) {
             Text(label)
-                .font(.system(size: wideLabel ? 11 : 12, weight: .medium, design: .monospaced))
+                .font(.system(size: 12, weight: .medium, design: .monospaced))
                 .foregroundStyle(Color(white: 0.6))
-                .lineLimit(wideLabel ? 2 : 1)
+                .lineLimit(1)
                 .minimumScaleFactor(0.8)
-                .frame(width: wideLabel ? 96 : 42, alignment: .leading)
+                .frame(width: 42, alignment: .leading)
                 .help(label)
 
             if hasElapsed {
@@ -638,6 +618,7 @@ struct QuotaTooltipPayload {
     let tokenColor: Color
     let elapsedPercentText: String?
     let remainingText: String?
+    var breakdown: [RateLimitMeter.Part] = []
     /// The hovered row's rect, resolved by the layer that draws the tooltip.
     let anchor: Anchor<CGRect>
 }
@@ -751,7 +732,8 @@ struct QuotaTooltipOverlay: View {
                 tokenPercentText: payload.tokenPercentText,
                 tokenColor: payload.tokenColor,
                 elapsedPercentText: payload.elapsedPercentText,
-                remainingText: payload.remainingText
+                remainingText: payload.remainingText,
+                breakdown: payload.breakdown
             )
             .fixedSize()
         }
@@ -769,6 +751,7 @@ private struct TooltipView: View {
     let tokenColor: Color
     let elapsedPercentText: String?
     let remainingText: String?
+    let breakdown: [RateLimitMeter.Part]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -809,6 +792,17 @@ private struct TooltipView: View {
                     label: "时间",
                     value: "未知",
                     valueColor: Color(white: 0.5),
+                    valueWeight: .regular
+                )
+            }
+
+            ForEach(Array(breakdown.enumerated()), id: \.offset) { _, part in
+                let window = RateLimitWindow(utilization: part.utilization)
+                row(
+                    dotColor: Color(white: 0.3),
+                    label: part.label,
+                    value: window.percentText,
+                    valueColor: Color(white: 0.82),
                     valueWeight: .regular
                 )
             }

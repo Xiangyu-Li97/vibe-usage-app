@@ -31,6 +31,14 @@ struct RateLimitMeter: Equatable, Identifiable {
     var id: String
     var label: String
     var window: RateLimitWindow
+    /// Optional split of this meter's allowance (Cursor's own vs third-party
+    /// models). It explains the row and only appears in its tooltip.
+    var breakdown: [Part] = []
+
+    struct Part: Equatable {
+        var label: String
+        var utilization: Double
+    }
 }
 
 /// Provider-neutral display order shared by every CLI-backed quota card.
